@@ -52,10 +52,11 @@ const (
 )
 
 const (
-	FullBackupCmd  = "Full Backup"
-	DBBackupCmd    = "Database Backup"
-	TableBackupCmd = "Table Backup"
-	RawBackupCmd   = "Raw Backup"
+	FullBackupCmd     = "Full Backup"
+	DBBackupCmd       = "Database Backup"
+	TableBackupCmd    = "Table Backup"
+	RawBackupCmd      = "Raw Backup"
+	SnapshotBackupCmd = "Snapshot Backup"
 )
 
 // CompressionConfig is the configuration for sst file compression.

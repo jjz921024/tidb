@@ -63,6 +63,21 @@ func runBackupRawCommand(command *cobra.Command, cmdName string) error {
 	return nil
 }
 
+func runBackupSnapshotCommand(command *cobra.Command, cmdName string) error {
+	cfg := task.TxnKvConfig{Config: task.Config{LogProgress: HasLogFile()}}
+	if err := cfg.ParseBackupConfigFromFlags(command.Flags()); err != nil {
+		command.SilenceUsage = false
+		return errors.Trace(err)
+	}
+
+	ctx := GetDefaultContext()
+	if err := task.RunBackupTxn(ctx, gluetikv.Glue{}, cmdName, &cfg); err != nil {
+		log.Error("failed to backup txn kv", zap.Error(err))
+		return errors.Trace(err)
+	}
+	return nil
+}
+
 // NewBackupCommand return a full backup subcommand.
 func NewBackupCommand() *cobra.Command {
 	command := &cobra.Command{
@@ -89,6 +104,7 @@ func NewBackupCommand() *cobra.Command {
 		newDBBackupCommand(),
 		newTableBackupCommand(),
 		newRawBackupCommand(),
+		newSnapshotBackupCommand(),
 	)
 
 	task.DefineBackupFlags(command.PersistentFlags())
@@ -153,5 +169,19 @@ func newRawBackupCommand() *cobra.Command {
 	}
 
 	task.DefineRawBackupFlags(command)
+	return command
+}
+
+func newSnapshotBackupCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "snapshot",
+		Short: "backup by snapshot TiKV cluster",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return runBackupSnapshotCommand(command, task.SnapshotBackupCmd)
+		},
+	}
+
+	task.DefineSnapshotBackupFlags(command)
 	return command
 }
