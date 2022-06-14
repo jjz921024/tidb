@@ -11,12 +11,13 @@ import (
 	"github.com/pingcap/tidb/br/pkg/summary"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/tikv/client-go/v2/oracle"
+	"github.com/tikv/client-go/v2/tikv"
 	"github.com/tikv/client-go/v2/txnkv"
 	"go.uber.org/zap"
 	"os"
 	"path/filepath"
 	"strconv"
-	"time"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 
 	flagFileSize = "size"
 	flagPrefix   = "prefix"
+	flagTs       = "ts"
 )
 
 const (
@@ -36,12 +38,15 @@ type TxnKvConfig struct {
 	Config
 
 	Prefix      string `json:"prefix" toml:"prefix"`
+	SnapshotTs  uint64 `json:"timestamp" toml:"timestamp"`
 	FileSize    int    `json:"size" toml:"size"`
 	Compression string `json:"compression" toml:"compression"`
 }
 
 func DefineSnapshotBackupFlags(command *cobra.Command) {
 	command.Flags().String(flagPrefix, defaultPrefix, "backup special prefix data")
+	command.Flags().String(flagTs, "", "snapshot timestamp. Default value is current ts.\n"+
+		"support TSO or datetime, e.g. '400036290571534337' or '2018-05-11 01:42:23'")
 	command.Flags().Int(flagFileSize, 100*1024*1024, "the size of each backup file")
 	command.Flags().String(flagCompressionType, "none",
 		"backup file compression algorithm, value can be one of 'none|gzip'")
@@ -53,6 +58,15 @@ func (cfg *TxnKvConfig) ParseBackupConfigFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+
+	ts, err := flags.GetString(flagTs)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if cfg.SnapshotTs, err = ParseTSString(ts); err != nil {
+		return errors.Trace(err)
+	}
+
 	cfg.FileSize, err = flags.GetInt(flagFileSize)
 	if err != nil {
 		return errors.Trace(err)
@@ -79,7 +93,16 @@ func RunBackupTxn(c context.Context, g glue.Glue, cmdName string, cfg *TxnKvConf
 	if err != nil {
 		return errors.Trace(err)
 	}
-	txn, err := cli.Begin()
+
+	if cfg.SnapshotTs == 0 {
+		p, l, err := cli.GetPDClient().GetTS(ctx)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		cfg.SnapshotTs = oracle.ComposeTS(p, l)
+	}
+
+	txn, err := cli.Begin(tikv.WithStartTS(cfg.SnapshotTs))
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -113,8 +136,7 @@ func RunBackupTxn(c context.Context, g glue.Glue, cmdName string, cfg *TxnKvConf
 	// 创建本地存储目录
 	l := u.GetLocal()
 	id := cli.GetClusterID()
-	ts := time.Now().Format("20060102150405")
-	path := mkdirBackupPath(l.Path, id, cfg.Prefix, ts)
+	path := mkdirBackupPath(l.Path, id, cfg.Prefix, cfg.SnapshotTs)
 	l.Path = path
 
 	// 创建对应存储的writer
@@ -132,9 +154,11 @@ func RunBackupTxn(c context.Context, g glue.Glue, cmdName string, cfg *TxnKvConf
 		s = storage.WithCompression(s, CompressionType_GZIP)
 	}
 
+	ts := oracle.GetTimeFromTS(cfg.SnapshotTs).Format("2006-01-02 15:04:05")
 	log.Info("start backup txn kv",
 		zap.String("path", path),
 		zap.String("prefix", cfg.Prefix),
+		zap.String("time", ts),
 		zap.Int("size", cfg.FileSize),
 		zap.String("compression", cfg.Compression),
 	)
@@ -183,14 +207,14 @@ func RunBackupTxn(c context.Context, g glue.Glue, cmdName string, cfg *TxnKvConf
 }
 
 // 在指定backup目录下创建此时backup的子目录
-// 目录名: <clusterId>_<prefix>_<timestamp>
-func mkdirBackupPath(p string, clusterId uint64, prefix string, ts string) string {
+// 目录名: <clusterId>_<prefix>_<tso>
+func mkdirBackupPath(p string, clusterId uint64, prefix string, ts uint64) string {
 	_, err := os.Stat(p)
 	if err != nil {
 		_ = os.MkdirAll(p, 644)
 	}
 
-	subPath := strconv.FormatUint(clusterId, 10) + "_" + prefix + "_" + ts
+	subPath := strconv.FormatUint(clusterId, 10) + "_" + prefix + "_" + strconv.FormatUint(ts, 10)
 	join := filepath.Join(p, subPath)
 	_ = os.Mkdir(join, 644)
 

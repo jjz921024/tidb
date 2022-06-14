@@ -175,7 +175,7 @@ func newRawBackupCommand() *cobra.Command {
 func newSnapshotBackupCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "snapshot",
-		Short: "backup by snapshot TiKV cluster",
+		Short: "backup kv by snapshot from TiKV cluster",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return runBackupSnapshotCommand(command, task.SnapshotBackupCmd)
