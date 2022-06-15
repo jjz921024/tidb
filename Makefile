@@ -301,6 +301,10 @@ br_web:
 build_br:
 	CGO_ENABLED=1 $(GOBUILD) $(RACE_FLAG) -ldflags '$(LDFLAGS) $(CHECK_FLAG)' -o $(BR_BIN) br/cmd/br/*.go
 
+build_br_webank:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '-s -w' -o bin/br-webank github.com/pingcap/tidb/br/cmd/br && \
+	upx -9 -o bin/br-webank-release bin/br-webank
+
 build_lightning_for_web:
 	CGO_ENABLED=1 $(GOBUILD) -tags dev $(RACE_FLAG) -ldflags '$(LDFLAGS) $(CHECK_FLAG)' -o $(LIGHTNING_BIN) br/cmd/tidb-lightning/main.go
 
